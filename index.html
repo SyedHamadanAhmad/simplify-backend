@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Real-Time Chat App</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    #chat {
+      border: 1px solid #ccc;
+      padding: 10px;
+      height: 300px;
+      width: 100%;
+      overflow-y: scroll;
+      margin-bottom: 10px;
+    }
+    #chat p {
+      margin: 5px 0;
+    }
+    .controls {
+      margin-bottom: 10px;
+    }
+    input[type="text"] {
+      padding: 5px;
+      margin-right: 5px;
+      width: 200px;
+    }
+    button {
+      padding: 5px 10px;
+    }
+    #summary-container {
+      border: 1px solid #ccc;
+      padding: 10px;
+      margin-top: 10px;
+    }
+    .loading {
+      color: #888;
+      font-style: italic;
+    }
+    .loading::after {
+      content: ' ...';
+      animation: dots 1.5s infinite;
+    }
+    @keyframes dots {
+      0%, 20% { content: ' .'; }
+      50% { content: ' ..'; }
+      80% { content: ' ...'; }
+    }
+    .summary-row {
+      display: flex;
+      align-items: center;
+    }
+    .summary-loading-indicator {
+      width: 20px;
+      height: 20px;
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3498db;
+      border-radius: 50%;
+      margin-left: 10px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <h1>Real-Time Chat App</h1>
+  <div class="controls">
+    <label for="user_id">Your User ID:</label>
+    <input type="text" id="user_id" placeholder="Enter your user ID">
+    <button id="connectBtn">Connect</button>
+  </div>
+  <div id="chat"></div>
+  <div class="controls">
+    <input type="text" id="recipient" placeholder="Recipient User ID (optional)">
+    <input type="text" id="message" placeholder="Your message">
+    <button id="sendBtn">Send</button>
+  </div>
+
+  <h2>Chat Summary</h2>
+  <div id="summary-container">
+    <div class="summary-row">
+      <strong>Summary:</strong> 
+      <span id="summary" class="loading">Not connected</span>
+      <div id="summary-loading" class="summary-loading-indicator" style="display:none;"></div>
+    </div>
+    <div class="summary-row">
+      <strong>Sentiment:</strong> 
+      <span id="sentiment" class="loading">Not connected</span>
+      <div id="sentiment-loading" class="summary-loading-indicator" style="display:none;"></div>
+    </div>
+    <div class="summary-row">
+      <strong>Keywords:</strong> 
+      <span id="keywords" class="loading">Not connected</span>
+      <div id="keywords-loading" class="summary-loading-indicator" style="display:none;"></div>
+    </div>
+  </div>
+
+  <script>
+    let ws;
+    let summaryWs;
+    let userId;
+    let activeConversation = null;
+
+    function showLoading(elementId) {
+      document.getElementById(elementId).classList.add('loading');
+      document.getElementById(`${elementId}-loading`).style.display = 'inline-block';
+    }
+
+    function hideLoading(elementId) {
+      document.getElementById(elementId).classList.remove('loading');
+      document.getElementById(`${elementId}-loading`).style.display = 'none';
+    }
+
+    function appendMessage(msg) {
+      const chat = document.getElementById('chat');
+      const p = document.createElement('p');
+      p.textContent = msg;
+      chat.appendChild(p);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function updateSummary(data) {
+      // Hide loading indicators
+      hideLoading('summary');
+      hideLoading('sentiment');
+      hideLoading('keywords');
+
+      if (data.error) {
+        document.getElementById("summary").innerHTML = `<span class="loading">${data.error}</span>`;
+        document.getElementById("sentiment").innerHTML = `<span class="loading">-</span>`;
+        document.getElementById("keywords").innerHTML = `<span class="loading">-</span>`;
+      } else {
+        document.getElementById("summary").textContent = data.summary || "No summary available";
+        document.getElementById("sentiment").textContent = data.sentiment || "Neutral";
+        document.getElementById("keywords").textContent = 
+          (data.keywords && data.keywords.length > 0) 
+            ? data.keywords.join(", ") 
+            : "No keywords";
+      }
+    }
+
+    document.getElementById('connectBtn').onclick = function() {
+      userId = document.getElementById('user_id').value.trim();
+      if (!userId) {
+        alert("Please enter your user ID.");
+        return;
+      }
+
+      // Main WebSocket for messaging
+      ws = new WebSocket('ws://localhost:8000/ws/' + userId);
+
+      // Persistent Summary WebSocket
+      summaryWs = new WebSocket("ws://localhost:8000/ws/chats/summarize");
+
+      ws.onopen = function() {
+        appendMessage("Connected as " + userId);
+      };
+
+      // Open summary connection
+      summaryWs.onopen = function() {
+        document.getElementById("summary").textContent = "Connected. Waiting for messages...";
+        document.getElementById("sentiment").textContent = "-";
+        document.getElementById("keywords").textContent = "-";
+      };
+
+      ws.onmessage = function(event) {
+        try {
+          const data = JSON.parse(event.data);
+          appendMessage(data.sender + ": " + data.message);
+          
+          // Determine conversation ID
+          const conversationId = data.sender !== userId 
+            ? [userId, data.sender].sort().join('-')
+            : 'global';
+          
+          // Show loading indicators
+          showLoading('summary');
+          showLoading('sentiment');
+          showLoading('keywords');
+
+          // Request summary update
+          if (summaryWs.readyState === WebSocket.OPEN) {
+            summaryWs.send(JSON.stringify({ 
+              conversation_id: conversationId,
+              action: 'update'
+            }));
+          }
+        } catch (e) {
+          appendMessage("Received: " + event.data);
+        }
+      };
+
+      // Handle summary WebSocket messages
+      summaryWs.onmessage = function(event) {
+        try {
+          const data = JSON.parse(event.data);
+          updateSummary(data);
+        } catch (e) {
+          console.error("Invalid JSON from Summary WebSocket:", event.data);
+          // Hide loading indicators in case of error
+          hideLoading('summary');
+          hideLoading('sentiment');
+          hideLoading('keywords');
+        }
+      };
+
+      ws.onclose = function() {
+        appendMessage("Disconnected from server.");
+      };
+
+      summaryWs.onclose = function() {
+        document.getElementById("summary").innerHTML = 
+          `<span class="loading">Summary connection lost</span>`;
+      };
+
+      ws.onerror = function(error) {
+        console.error("WebSocket error: ", error);
+        appendMessage("WebSocket error. See console for details.");
+      };
+
+      summaryWs.onerror = function(error) {
+        console.error("Summary WebSocket error: ", error);
+      };
+    };
+
+    document.getElementById('sendBtn').onclick = async function() {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        alert("You are not connected. Please connect first.");
+        return;
+      }
+      const recipient = document.getElementById('recipient').value.trim();
+      const message = document.getElementById('message').value.trim();
+      if (!message) {
+        alert("Please enter a message.");
+        return;
+      }
+
+      const conversationId = recipient 
+        ? [userId, recipient].sort().join('-') 
+        : 'global';
+      
+      const payload = { message: message };
+      if (recipient) {
+        payload.recipient = recipient;
+      }
+      ws.send(JSON.stringify(payload));
+      appendMessage("You: " + message + (recipient ? " (to " + recipient + ")" : ""));
+      document.getElementById('message').value = "";
+
+      // Show loading indicators
+      showLoading('summary');
+      showLoading('sentiment');
+      showLoading('keywords');
+
+      try {
+        await fetch('http://localhost:8000/chats', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            conversation_id: conversationId,
+            sender_id: userId,
+            recipient_id: recipient || "global",
+            message: message
+          })
+        });
+
+        // Request summary update after sending
+        if (summaryWs.readyState === WebSocket.OPEN) {
+          summaryWs.send(JSON.stringify({ 
+            conversation_id: conversationId,
+            action: 'update'
+          }));
+        }
+      } catch (error) {
+        console.error("Failed to store message: ", error);
+        // Hide loading indicators in case of error
+        hideLoading('summary');
+        hideLoading('sentiment');
+        hideLoading('keywords');
+      }
+    };
+  </script>
+</body>
+</html>
