@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from typing import List
-from ..classes import MessageCreate, MessageResponse, SummarizeRequest
+from classes import MessageCreate, MessageResponse, SummarizeRequest
 import asyncio
 from motor.motor_asyncio import AsyncIOMotorClient
 import google.generativeai as genai  # Gemini API

@@ -1,12 +1,12 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
 import asyncio
-from ..socket_stuff import ConnectionManager
+from socket_stuff import ConnectionManager
 import json
 import textblob  # Sentiment Analysis
 import yake  # Keyword Extraction
 import google.generativeai as genai  # Gemini API
-from ..classes import SummarizeRequest
-from .chats import db
+from classes import SummarizeRequest
+from routers.chats import db
 
 router = APIRouter()
 manager = ConnectionManager()

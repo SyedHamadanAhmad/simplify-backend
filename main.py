@@ -1,9 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from backend.routers.websockets import router as websocket_router
-from backend.routers.chats import router as chat_router
-from .socket_stuff import ConnectionManager
+from routers.websockets import router as websocket_router
+from routers.chats import router as chat_router
+from socket_stuff import ConnectionManager
 app = FastAPI()
 
 # Add CORS middleware
